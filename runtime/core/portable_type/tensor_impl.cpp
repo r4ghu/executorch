@@ -11,6 +11,8 @@
 #include <algorithm>
 #include <cstdint>
 
+#include <c10/util/irange.h>
+
 #include <executorch/runtime/core/exec_aten/util/dim_order_util.h>
 #include <executorch/runtime/core/exec_aten/util/scalar_type_util.h>
 #include <executorch/runtime/core/exec_aten/util/tensor_shape_to_c_string.h>
@@ -30,7 +32,7 @@ ssize_t compute_numel(const TensorImpl::SizesType* sizes, ssize_t dim) {
       dim == 0 || sizes != nullptr,
       "Sizes must be provided for non-scalar tensors");
   ssize_t numel = 1; // Zero-dimensional tensors (scalars) have numel == 1.
-  for (ssize_t i = 0; i < dim; ++i) {
+  for (const auto i : c10::irange(dim)) {
     ET_CHECK_MSG(
         sizes[i] >= 0,
         "Size must be non-negative, got %d at dimension %zd",
@@ -95,21 +97,19 @@ Error TensorImpl::internal_resize_contiguous(ArrayRef<SizesType> new_sizes) {
   switch (shape_dynamism_) {
     case TensorShapeDynamism::STATIC:
       if (!std::equal(sizes_, sizes_ + dim_, new_sizes.begin())) {
-#ifdef ET_LOG_ENABLED
-        auto old_sizes_str = executorch::runtime::tensor_shape_to_c_string(
-            executorch::runtime::Span<const SizesType>(
-                sizes().data(), sizes().size()));
-        auto new_sizes_str = executorch::runtime::tensor_shape_to_c_string(
-            executorch::runtime::Span<const SizesType>(
-                new_sizes.data(), new_sizes.size()));
-#endif
-
-        ET_CHECK_OR_RETURN_ERROR(
-            false,
-            NotSupported,
+#if ET_LOG_ENABLED
+        executorch::runtime::Span<const SizesType> sizes_span(
+            sizes().data(), sizes().size());
+        executorch::runtime::Span<const SizesType> new_sizes_span(
+            new_sizes.data(), new_sizes.size());
+        ET_LOG(
+            Error,
             "Attempted to resize a static tensor. Expected shape %s, but received %s.",
-            old_sizes_str.data(),
-            new_sizes_str.data())
+            executorch::runtime::tensor_shape_to_c_string(sizes_span).data(),
+            executorch::runtime::tensor_shape_to_c_string(new_sizes_span)
+                .data());
+#endif
+        return executorch::runtime::Error::NotSupported;
       }
 
       break;
